@@ -1,0 +1,391 @@
+Option Explicit
+Private Function next_day(last_day As String) As String
+    Dim next_day_i As Integer
+    
+    next_day_i = CInt(last_day)
+    next_day_i = next_day_i + 1
+    If next_day_i / 10 < 1 Then
+        next_day = 0 & CStr(next_day_i)
+    Else
+        next_day = CStr(next_day_i)
+    End If
+End Function
+
+Sub payment_run_report()
+    Dim daily As Workbook
+    Dim monthly As Workbook
+    Dim last_sheet As String
+    Dim last_day As String
+    Dim next_days As String
+    Dim next_date As String
+    Dim next_date_WB As Worksheet
+    Dim num_rows As Long
+    Dim pw As String
+    Dim days_to_check As Double
+    Dim i As Long
+    Dim last_date As Date
+    
+    pw = "BAUMD"
+    ActiveWorkbook.Unprotect Password:=pw
+    
+    Set monthly = ActiveWorkbook
+    
+    last_sheet = ActiveSheet.Name
+    last_date = convert_to_date(last_sheet)
+    days_to_check = Int(Now - last_date) - 1
+    
+    For i = 1 To days_to_check
+    
+        last_sheet = ActiveSheet.Name
+        last_day = Left(last_sheet, 2)
+        next_days = next_day(last_day)
+        next_date = next_days & Right(last_sheet, 8)
+        
+        Sheets.Add After:=Sheets(Sheets.Count)
+        Set next_date_WB = ActiveSheet
+        next_date_WB.Name = next_date
+        
+        Dim next_date_path As String
+        next_date_path = monthly.Path & "\XLS" & "\payment run_" & next_date & ".xls"
+        
+        On Error Resume Next
+        
+        Set daily = Workbooks.Open(Filename:=next_date_path)
+        
+        Do While Err <> 0
+            Dim ans As Integer
+            Dim Config As Integer
+            Config = vbRetryCancel + vbQuestion + vbDefaultButton2
+            ans = MsgBox("Can't find " & next_date_path & " Make sure the file is in the same folder and named exactly like this", Config, "Warning!")
+            If ans = vbCancel Then
+                Application.DisplayAlerts = False
+                next_date_WB.Delete
+                Application.DisplayAlerts = True
+                On Error GoTo 0
+                Exit Sub
+            ElseIf ans = vbRetry Then
+                Set daily = Workbooks.Open(Filename:=next_date_path)
+            End If
+        Loop
+        On Error GoTo 0
+               
+        
+        daily.Activate
+        Call payment_run_format
+        num_rows = ActiveSheet.UsedRange.Rows.Count
+        ActiveSheet.UsedRange.Copy
+        monthly.Activate
+        Range("a1").PasteSpecial
+        
+        Application.DisplayAlerts = False
+        daily.Save
+        daily.Close
+        Application.DisplayAlerts = True
+        
+        next_date_WB.Activate
+        Range("F1").Value = "Checked on"
+        Range("G1").Value = "Name of reviewer"
+        Range("H1").Value = "Request sent"
+        Range("I1").Value = "Comment"
+        
+        next_date_WB.Cells(2, 5).Formula = "=Vlookup(B" & 2 & ",sox,2,0)"
+        Cells(2, 5).AutoFill Destination:=Range(Cells(2, 5), Cells(num_rows, 5))
+        Rows("1:1").AutoFilter
+        Cells.EntireColumn.AutoFit
+    Next i
+    'ActiveWorkbook.Protect Password:=pw, Structure:=True
+End Sub
+
+
+Private Sub payment_run_format()
+'
+' payment_run Macro
+'
+
+'
+    Columns("A:A").Select
+    Selection.Delete Shift:=xlToLeft
+    Rows("1:4").Select
+    Selection.Delete Shift:=xlUp
+    Columns("A:A").Select
+    Selection.AutoFilter
+    ActiveSheet.Range("$A$1:$A$76010").AutoFilter Field:=1, Criteria1:="="
+    Range("A2").Select
+    Range(Selection, ActiveCell.SpecialCells(xlLastCell)).Select
+    Selection.EntireRow.Delete
+    ActiveSheet.Range("$A$1:$A$68991").AutoFilter Field:=1, Criteria1:= _
+        "Doc. no."
+    Range("A59").Select
+    Range(Selection, ActiveCell.SpecialCells(xlLastCell)).Select
+    Selection.EntireRow.Delete
+    ActiveSheet.Range("$A$1:$A$67822").AutoFilter Field:=1
+End Sub
+
+Sub sample_check_report()
+    Dim daily As Workbook
+    Dim monthly As Workbook
+    Dim last_sheet As String
+    Dim last_day As String
+    Dim next_days As String
+    Dim next_date As String
+    Dim next_date_WB As Worksheet
+    Dim num_rows As Long
+    Dim pw As String
+    Dim days_to_check As Double
+    Dim i As Long
+    Dim last_date As Date
+    
+    pw = "BAUMD"
+    ActiveWorkbook.Unprotect Password:=pw
+    
+    Set monthly = ActiveWorkbook
+    
+    last_sheet = ActiveSheet.Name
+    last_date = convert_to_date(last_sheet)
+    days_to_check = Int(Now - last_date) - 1
+    
+    For i = 1 To days_to_check
+        last_sheet = ActiveSheet.Name
+        last_day = Left(last_sheet, 2)
+        next_days = next_day(last_day)
+        next_date = next_days & Right(last_sheet, 8)
+        
+        Sheets.Add After:=Sheets(Sheets.Count)
+        Set next_date_WB = ActiveSheet
+        next_date_WB.Name = next_date
+        
+        Dim next_date_path As String
+        next_date_path = monthly.Path & "\XLS" & "\sample check_" & next_date & ".xls"
+        
+        
+        On Error Resume Next
+        
+        Set daily = Workbooks.Open(Filename:=next_date_path)
+        
+        Do While Err <> 0
+            Dim ans As Integer
+            Dim Config As Integer
+            Config = vbRetryCancel + vbQuestion + vbDefaultButton2
+            ans = MsgBox("Can't find " & next_date_path & " Make sure the file is in the same folder and named exactly like this", Config, "Warning!")
+            If ans = vbCancel Then
+                Application.DisplayAlerts = False
+                next_date_WB.Delete
+                Application.DisplayAlerts = True
+                On Error GoTo 0
+                Exit Sub
+            ElseIf ans = vbRetry Then
+                Set daily = Workbooks.Open(Filename:=next_date_path)
+            End If
+        Loop
+        On Error GoTo 0
+        
+        
+        daily.Activate
+        Call sample_check_format
+        num_rows = ActiveSheet.UsedRange.Rows.Count
+        ActiveSheet.UsedRange.Copy
+        monthly.Activate
+        Range("a1").PasteSpecial
+        
+        Application.DisplayAlerts = False
+        daily.Save
+        daily.Close
+        Application.DisplayAlerts = True
+        
+        next_date_WB.Activate
+        Range("J1").Value = "Data Quality (OK/Wrong data)"
+        Range("K1").Value = "Status (ok checked/missing source docs)"
+        Range("L1").Value = "Checked on"
+        Range("M1").Value = "Request sent"
+        Range("N1").Value = "Status (ok checked/not ok, date)"
+        Range("O1").Value = "Name of reviewer"
+        Range("P1").Value = "FIC Number"
+        
+        Rows("1:1").AutoFilter
+        Cells.EntireColumn.AutoFit
+        ActiveSheet.UsedRange.AutoFilter Field:=5, Criteria1:=Array( _
+            "Bank Details", "IBAN", "VAT Reg. No.", "VAT Reg. Number"), Operator:=xlFilterValues
+    Next i
+    'ActiveWorkbook.Protect Password:=pw, Structure:=True
+End Sub
+
+Private Sub sample_check_format()
+'
+' sample_check_format Macro
+'
+
+'
+    ActiveWindow.SmallScroll Down:=-9
+    Rows("1:1").Select
+    ActiveWindow.SmallScroll Down:=51
+    Rows("1:68").Select
+    Selection.Delete Shift:=xlUp
+    ActiveWindow.SmallScroll Down:=-12
+    Columns("A:A").Select
+    Selection.Delete Shift:=xlToLeft
+    Selection.TextToColumns Destination:=Range("A1"), DataType:=xlFixedWidth, _
+        FieldInfo:=Array(Array(0, 1), Array(11, 1), Array(20, 1), Array(31, 1), Array(44, 1), _
+        Array(75, 1), Array(80, 1), Array(85, 1), Array(121, 1)), TrailingMinusNumbers:=True
+    Selection.AutoFilter
+    ActiveSheet.Range("$A$1:$A$4772").AutoFilter Field:=1, Criteria1:="=Date", _
+        Operator:=xlOr, Criteria2:="="
+    ActiveWindow.SmallScroll Down:=-6
+    Range("A2").Select
+    Range(Selection, ActiveCell.SpecialCells(xlLastCell)).Select
+    Selection.EntireRow.Delete
+    ActiveSheet.Range("$A$1:$A$2028").AutoFilter Field:=1
+    Columns("C:C").EntireColumn.AutoFit
+    Columns("A:A").EntireColumn.AutoFit
+    Columns("H:H").EntireColumn.AutoFit
+    Columns("I:I").EntireColumn.AutoFit
+    Columns("E:E").EntireColumn.AutoFit
+End Sub
+
+
+Sub payment_method_report()
+    Dim daily As Workbook
+    Dim monthly As Workbook
+    Dim last_sheet As String
+    Dim last_day As String
+    Dim next_days As String
+    Dim next_date As String
+    Dim next_date_WB As Worksheet
+    Dim num_rows As Long
+    Dim pw As String
+    Dim days_to_check As Double
+    Dim i As Long
+    Dim last_date As Date
+    
+    pw = "BAUMD"
+    ActiveWorkbook.Unprotect Password:=pw
+    
+    Set monthly = ActiveWorkbook
+    
+    last_sheet = ActiveSheet.Name
+    last_date = convert_to_date(last_sheet)
+    days_to_check = Int(Now - last_date) - 1
+    
+    For i = 1 To days_to_check
+        last_sheet = ActiveSheet.Name
+        last_day = Left(last_sheet, 2)
+        next_days = next_day(last_day)
+        next_date = next_days & Right(last_sheet, 8)
+        
+        Sheets.Add After:=Sheets(Sheets.Count)
+        Set next_date_WB = ActiveSheet
+        next_date_WB.Name = next_date
+        
+        Dim next_date_path As String
+        next_date_path = monthly.Path & "\XLS" & "\payment method_" & next_date & ".xls"
+        
+        On Error Resume Next
+        
+        Set daily = Workbooks.Open(Filename:=next_date_path)
+        
+        Do While Err <> 0
+            Dim ans As Integer
+            Dim Config As Integer
+            Config = vbRetryCancel + vbQuestion + vbDefaultButton2
+            ans = MsgBox("Can't find " & next_date_path & " Make sure the file is in the same folder and named exactly like this", Config, "Warning!")
+            If ans = vbCancel Then
+                Application.DisplayAlerts = False
+                next_date_WB.Delete
+                Application.DisplayAlerts = True
+                On Error GoTo 0
+                Exit Sub
+            ElseIf ans = vbRetry Then
+                Set daily = Workbooks.Open(Filename:=next_date_path)
+            End If
+        Loop
+        On Error GoTo 0
+        
+        daily.Activate
+        Call payment_method_format
+        num_rows = ActiveSheet.UsedRange.Rows.Count
+        ActiveSheet.UsedRange.Copy
+        monthly.Activate
+        Range("a1").PasteSpecial
+        
+        Application.DisplayAlerts = False
+        daily.Save
+        daily.Close
+        Application.DisplayAlerts = True
+        
+        next_date_WB.Activate
+        Range("J1").Value = "Data Quality (OK/Wrong data)"
+        Range("K1").Value = "Status (ok checked/missing source docs)"
+        Range("L1").Value = "Checked on"
+        Range("M1").Value = "Request sent"
+        Range("N1").Value = "Status (ok checked/not ok, date)"
+        Range("O1").Value = "Name of reviewer"
+        Range("P1").Value = "Comment"
+        
+        Rows("1:1").AutoFilter
+        Cells.EntireColumn.AutoFit
+        ActiveSheet.UsedRange.AutoFilter Field:=5, Criteria1:=Array( _
+            "Alternat.payee", "Payment methods"), Operator:=xlFilterValues
+    Next i
+    'ActiveWorkbook.Protect Password:=pw, Structure:=True
+End Sub
+
+
+Private Sub payment_method_format()
+'
+' payment_method_format Macro
+'
+
+'
+   
+    Rows("1:68").Select
+    Selection.Delete Shift:=xlUp
+    Columns("A:A").Select
+    Selection.Delete Shift:=xlToLeft
+    Selection.TextToColumns Destination:=Range("A1"), DataType:=xlFixedWidth, _
+        FieldInfo:=Array(Array(0, 1), Array(11, 1), Array(20, 1), Array(31, 1), Array(44, 1), _
+        Array(75, 1), Array(80, 1), Array(85, 1), Array(121, 1)), TrailingMinusNumbers:=True
+    Selection.AutoFilter
+    ActiveSheet.Range("$A$1:$A$23124").AutoFilter Field:=1, Criteria1:="=Date" _
+        , Operator:=xlOr, Criteria2:="="
+    Range("A2").Select
+    Range(Selection, ActiveCell.SpecialCells(xlLastCell)).Select
+    Selection.EntireRow.Delete
+    ActiveSheet.Range("$A$1:$A$9935").AutoFilter Field:=1
+    Cells.Select
+    Cells.EntireColumn.AutoFit
+End Sub
+
+Private Function convert_to_date(d As String) As Date
+    'Converts a string in dd.mm.yyyy format to date format
+    Dim datestring As String
+    Dim year As String
+    Dim month As String
+    Dim day As String
+    
+    year = Right(d, 4)
+    month = Mid(d, 4, 2)
+    day = Left(d, 2)
+    
+    datestring = month & "." & day & "." & year
+    
+    convert_to_date = DateValue(datestring)
+End Function
+
+Sub GL1_format()
+'
+' GL1_format Macro
+'
+
+'
+    Rows("1:4").Select
+    Selection.Delete Shift:=xlUp
+    Columns("A:A").Select
+    Selection.Delete Shift:=xlToLeft
+    Selection.AutoFilter
+    ActiveSheet.Range("$A$1:$A$144").AutoFilter Field:=1, Criteria1:="=Object" _
+        , Operator:=xlOr, Criteria2:="="
+    Range("A2").Select
+    Range(Selection, ActiveCell.SpecialCells(xlLastCell)).Select
+    Selection.EntireRow.Delete
+    ActiveSheet.Range("$A$1:$A$125").AutoFilter Field:=1
+    ActiveWindow.SmallScroll Down:=6
+End Sub
