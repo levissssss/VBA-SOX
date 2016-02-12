@@ -1,0 +1,775 @@
+
+Option Explicit
+Private Sub Now_check(dt As Range, Rows As Long, errcl As Long, cat_IDs As Long)
+    Dim Cat_ID As Range
+    Set Cat_ID = Cells(Rows, cat_IDs)
+    Dim error_log As Range
+    Set error_log = Cells(Rows, errcl)
+    Dim dt_name As String
+    dt_name = Cells(1, dt.Column).Value
+    If dt > Now Then
+        error_log.Value = error_log.Value & dt_name & " is later than today!"
+        dt.Interior.ColorIndex = 3
+        error_log.Interior.ColorIndex = 3
+        Cat_ID.Interior.ColorIndex = 3
+    End If
+End Sub
+
+Private Sub Compare_Date(date1 As Range, date2 As Range, Rows As Long, columsnrs As Long, cat_IDs As Long, enforce_dates As Boolean)
+    'If date1 is later than date2 or one exists while the other does not, colors Cat ID, both dates and error log red, and writes the reason in error log.
+    Dim Cat_ID As Range
+    Set Cat_ID = Cells(Rows, cat_IDs)
+    Dim error_log As Range
+    Set error_log = Cells(Rows, columsnrs + 1)
+    
+    Dim date1_name As String
+    date1_name = Cells(1, date1.Column).Value
+    Dim date2_name As String
+    date2_name = Cells(1, date2.Column).Value
+    
+    If enforce_dates = True Then
+        If date1 <> 0 And date2 = 0 Then
+            date2.Interior.ColorIndex = 3
+            Cat_ID.Interior.ColorIndex = 3
+            error_log.Interior.ColorIndex = 3
+            error_log.Value = error_log.Value & "Missing info, if <" & date1_name & "> is filled in then <" & date2_name & "> must be filled in as well! "
+        End If
+        
+        If date2 <> 0 And date1 = 0 Then
+            date1.Interior.ColorIndex = 3
+            Cat_ID.Interior.ColorIndex = 3
+            error_log.Interior.ColorIndex = 3
+            error_log.Value = error_log.Value & "Missing info, if <" & date2_name & "> is filled in then <" & date1_name & "> must be filled in as well! "
+        End If
+    End If
+    
+    If date1 >= date2 And date2 <> 0 Then
+        date1.Interior.ColorIndex = 3
+        date2.Interior.ColorIndex = 3
+        Cat_ID.Interior.ColorIndex = 3
+        error_log.Interior.ColorIndex = 3
+        If InStr(error_log.Value, "Dates") = 0 Then
+            error_log.Value = error_log.Value & "Dates not in chronology: "
+        End If
+        error_log.Value = error_log.Value & ", <" & date1_name & ">" & " is later then " & "<" & date2_name & "> "
+    End If
+    
+End Sub
+Private Sub find_outlier(collumn_to_check As Long, MDrelcolnr As Long, from_date As Date, to_date As Date)
+    
+    Dim sigma As Integer
+    Dim min_data As Integer
+    sigma = 3.5
+    min_data = 15
+    
+    Dim vali As Worksheet
+    Set vali = ThisWorkbook.Sheets("validation")
+    Dim email As Worksheet
+    Set email = Worksheets("emails")
+    vali.Activate
+    'Filter for dates
+    vali.ListObjects("Table_tracker_query").Range.AutoFilter Field:=MDrelcolnr, _
+        Criteria1:=">=" & CDbl(from_date), Operator:=xlAnd, Criteria2:="<=" & CDbl(to_date)
+    
+    Dim LR As Long
+    Dim Range_to_Check As Range
+    LR = Cells(Rows.count, collumn_to_check).End(xlUp).Row
+    Set Range_to_Check = Range(Cells(2, collumn_to_check), Cells(LR, collumn_to_check)).SpecialCells(xlCellTypeVisible)
+    
+    Dim Median As Double
+    Dim MAD As Double
+    Dim element As Range
+    
+    Dim range_copy As Range
+    Range_to_Check.Copy Destination:=email.Cells(200, 26)
+    email.Activate
+    Set range_copy = email.Range(email.Cells(200, 26), email.Cells((200 + Range_to_Check.count), 26))
+    'Remove blank cells
+    Dim i As Integer, counter As Integer
+    i = 1
+    For counter = 1 To range_copy.Rows.count
+        If range_copy.Cells(i) = 0 Then
+            range_copy.Cells(i).Delete Shift:=xlUp
+        Else
+            i = i + 1
+        End If
+    Next
+        
+    'If range is empty this will error
+    On Error Resume Next
+    Median = Application.WorksheetFunction.Median(range_copy)
+    If Err.Number = 1004 Then
+        vali.ShowAllData
+        Exit Sub
+    End If
+    On Error GoTo 0
+    
+    'quit if too few data
+    If range_copy.count <= min_data Then
+        range_copy.Delete
+        vali.ShowAllData
+        Exit Sub
+    End If
+    
+    'Convert to . decimal string
+    Dim MedianS As String
+    MedianS = Replace(CStr(Median), ",", ".")
+    MAD = Evaluate("=Median(Abs(" & range_copy.Address & "-" & MedianS & "))")
+    vali.Activate
+    For Each element In Range_to_Check
+        If element <> 0 And Abs(Median - element.Value) > (sigma * MAD) Then
+            With element.Font
+                .Color = -11489280
+                .Bold = True
+            End With
+        End If
+    Next
+    range_copy.Delete
+    ActiveSheet.ShowAllData
+End Sub
+Sub Sharepoint_Check()
+    Application.ScreenUpdating = False
+    
+    'Update from sharepoint tracker
+    On Error Resume Next
+    ActiveWorkbook.RefreshAll
+    DoEvents
+    If Err = 1004 Then
+        Dim ans As Integer
+        Dim Config As Integer
+        Config = vbAbortRetryIgnore + vbQuestion + vbDefaultButton3
+        ans = MsgBox("The tracker isn't able to be refreshed from sharepoint.", Config, "Warning!")
+        
+        If ans = vbAbort Then
+            Exit Sub
+        ElseIf ans = vbRetry Then
+            On Error GoTo 0
+            Call Sharepoint_Check
+        End If
+    End If
+    On Error GoTo 0
+    
+    'Clear previos checks
+    With Range("Table_tracker_query[#All]")
+        .Interior.ColorIndex = 0
+        .Font.ThemeColor = xlThemeColorLight1
+        .Font.Bold = False
+    End With
+    
+    Dim vali As Worksheet
+    
+    Dim count As Long
+    Dim count2 As Long
+    
+
+    Dim col_dw As Long
+    Dim columsnr As Long
+    
+    Dim Resubmission As Long
+    Dim CA_Start As Long
+    Dim CA_REStart As Long
+    Dim Sent_to_Supplier As Long
+    Dim Answer_from_Supplier As Long
+    Dim Sent_to_LM As Long
+    Dim Answer_from_LM As Long
+    Dim Sent_to_CM As Long
+    Dim Answer_from_CM As Long
+    Dim MD_Start As Long
+    Dim Sent_back_to_CM_on_Portal As Long
+    Dim Recieved_back_from_the_CM_on_Portal As Long
+    Dim L3_Approve As Long
+    Dim L5_Approve As Long
+    Dim MD_Release As Long
+    Dim CA_responsible_colnr As Long
+    
+    Dim Catalogue_Type As Long
+    Dim Catalogue_Status As Long
+    Dim Catalogue_Name As Long
+    Dim Local_Market As Long
+    Dim Trading_model As Long
+    Dim Cat_ID As Long
+    Dim dashboard As Worksheet
+    
+    Set dashboard = ThisWorkbook.Sheets("Dashboard")
+    Set vali = ThisWorkbook.Sheets("validation")
+    Dim from_MD_rel As Date
+    Dim to_MD_rel As Date
+    
+    from_MD_rel = dashboard.Cells(2, 5)
+    to_MD_rel = dashboard.Cells(3, 5)
+    
+    vali.Activate
+    On Error Resume Next
+    ActiveSheet.ShowAllData
+    On Error GoTo 0
+    
+    Resubmission = Application.Match("Resubmission", Range(Cells(1, 1), Cells(1, 50)), 0)
+    CA_Start = Application.Match("CA Start / Conclusion Sheet Date", Range(Cells(1, 1), Cells(1, 50)), 0)
+    CA_REStart = Application.Match("CA Restart / Conclusion Sheet Date 2", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Sent_to_Supplier = Application.Match("Sent to Supplier", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Answer_from_Supplier = Application.Match("Answer from Supplier", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Sent_to_LM = Application.Match("Sent to LM", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Answer_from_LM = Application.Match("Answer from LM", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Sent_to_CM = Application.Match("Sent to CM", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Answer_from_CM = Application.Match("Answer from CM", Range(Cells(1, 1), Cells(1, 50)), 0)
+    MD_Start = Application.Match("MD start", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Sent_back_to_CM_on_Portal = Application.Match("Sent back to CM on Portal", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Recieved_back_from_the_CM_on_Portal = Application.Match("Recieved back from the CM on Portal", Range(Cells(1, 1), Cells(1, 50)), 0)
+    L3_Approve = Application.Match("L3 Approve", Range(Cells(1, 1), Cells(1, 50)), 0)
+    L5_Approve = Application.Match("L5 Approve", Range(Cells(1, 1), Cells(1, 50)), 0)
+    MD_Release = Application.Match("MD Release", Range(Cells(1, 1), Cells(1, 50)), 0)
+    CA_responsible_colnr = vali.Range("Table_tracker_query[[#Headers],[CA responsible]]").Column
+    
+    Cat_ID = Application.Match("ID", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Catalogue_Status = Application.Match("Catalogue Status", Range(Cells(1, 1), Cells(1, 50)), 0)
+    
+    Catalogue_Name = Application.Match("Catalogue Name", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Local_Market = Application.Match("Local Market", Range(Cells(1, 1), Cells(1, 50)), 0)
+    Trading_model = Application.Match("Trading Model", Range(Cells(1, 1), Cells(1, 50)), 0)
+    
+    
+    
+    'Create error log if not already present, clear existing
+    Dim errorlog_colnr As Long
+    If IsError(Application.Match("Error log", Range(Cells(1, 1), Cells(1, 50)), 0)) Then
+        Range("A1").Select
+        col_dw = Application.WorksheetFunction.CountA(Range(ActiveCell, ActiveCell.End(xlDown)))
+        columsnr = Application.WorksheetFunction.CountA(Range(ActiveCell, ActiveCell.End(xlToRight)))
+        Cells(1, columsnr + 1) = "Error log"
+        Cells(1, columsnr + 1).Interior.ColorIndex = 3
+        errorlog_colnr = columsnr + 1
+    Else
+        Range("A1").Select
+        col_dw = Application.WorksheetFunction.CountA(Range(ActiveCell, ActiveCell.End(xlDown)))
+        columsnr = Application.WorksheetFunction.CountA(Range(ActiveCell, ActiveCell.End(xlToRight))) - 1
+        Range("Table_tracker_query[Error log]").ClearContents
+        errorlog_colnr = Range("Table_tracker_query[[#Headers],[Error log]]").Column
+    End If
+    
+    'set up range variables
+    
+    Dim CA_StartR As Range
+    Dim Sent_to_SupplierR As Range
+    Dim Received_from_SupplierR As Range
+    Dim Sent_to_LMR As Range
+    Dim Received_from_LMR As Range
+    Dim Sent_to_CMR As Range
+    Dim Received_from_CMR As Range
+    Dim MD_StartR As Range
+    Dim Row As Long
+    Dim MD_releaseR As Range
+    Dim Sent_back_to_CM_on_PortalR As Range
+    Dim Received_back_from_CM_on_PortalR As Range
+    Dim L5_approveR As Range
+    Dim Catalogue_StatusR As Range
+    Dim ResubmissionR As Range
+    Dim CA_RestartR As Range
+    Dim Trading_ModelR As Range
+    Dim Cat_IDR As Range
+    Dim error_log As Range
+    Dim error_count As Long
+    Dim CA_responsibleR As Range
+    
+    For Row = 2 To col_dw
+        Set CA_StartR = Cells(Row, CA_Start)
+        Set Sent_to_SupplierR = Cells(Row, Sent_to_Supplier)
+        Set Received_from_SupplierR = Cells(Row, Answer_from_Supplier)
+        Set Sent_to_LMR = Cells(Row, Sent_to_LM)
+        Set Received_from_LMR = Cells(Row, Answer_from_LM)
+        Set Sent_to_CMR = Cells(Row, Sent_to_CM)
+        Set Received_from_CMR = Cells(Row, Answer_from_CM)
+        Set MD_StartR = Cells(Row, MD_Start)
+        Set MD_releaseR = Cells(Row, MD_Release)
+        Set Sent_back_to_CM_on_PortalR = Cells(Row, Sent_back_to_CM_on_Portal)
+        Set Received_back_from_CM_on_PortalR = Cells(Row, Recieved_back_from_the_CM_on_Portal)
+        Set L5_approveR = Cells(Row, L5_Approve)
+        Set Catalogue_StatusR = Cells(Row, Catalogue_Status)
+        Set ResubmissionR = Cells(Row, Resubmission)
+        Set CA_RestartR = Cells(Row, CA_REStart)
+        Set Trading_ModelR = Cells(Row, Trading_model)
+        Set error_log = Cells(Row, errorlog_colnr)
+        Set Cat_IDR = Cells(Row, Cat_ID)
+        Set CA_responsibleR = Cells(Row, CA_responsible_colnr)
+            
+        If from_MD_rel <= MD_releaseR.Value And MD_releaseR.Value <= to_MD_rel Then
+            '0. Nothing can be more then today.
+            Call Now_check(CA_StartR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Sent_to_SupplierR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Received_from_SupplierR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Sent_to_LMR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Received_from_LMR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Sent_to_CMR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Received_from_CMR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(MD_StartR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(MD_releaseR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Sent_back_to_CM_on_PortalR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(Received_back_from_CM_on_PortalR, Row, errorlog_colnr, Cat_ID)
+            Call Now_check(L5_approveR, Row, errorlog_colnr, Cat_ID)
+            
+            '1 Information missing
+            '1.1 if status is: MD progress(D) -> MD start cannot be blank
+            If (Catalogue_StatusR.Value = "2 - MD progress" And MD_StartR.Value = 0) Then
+                error_log.Value = error_log.Value & "MD start blank while status is MD progess! "
+                error_log.Interior.ColorIndex = 3
+                MD_StartR.Interior.ColorIndex = 3
+                Cat_IDR.Interior.ColorIndex = 3
+            End If
+            
+            '1.2 if status is: MD released(D) -> MD release cannot be blank
+            If Catalogue_StatusR.Value = "3 - Released" And MD_releaseR.Value = 0 Then
+                error_log.Value = error_log.Value & "MD release cannot be blank while status is MD released! "
+                error_log.Interior.ColorIndex = 3
+                MD_releaseR.Interior.ColorIndex = 3
+                Cat_IDR.Interior.ColorIndex = 3
+            End If
+            
+            '1.2 if status is: MD released(D) -> MD start cannot be blank
+            If Catalogue_StatusR.Value = "3 - Released" And MD_StartR.Value = 0 Then
+                error_log.Value = error_log.Value & "MD start cannot be blank while status is MD released! "
+                error_log.Interior.ColorIndex = 3
+                MD_StartR.Interior.ColorIndex = 3
+                Cat_IDR.Interior.ColorIndex = 3
+            End If
+            
+            '1.3 if resubmission not 0 -> CA  restart cannot be blank
+            If ResubmissionR.Value <> 0 And CA_RestartR.Value = 0 Then
+                error_log.Value = error_log.Value & "If resubmission, CA restart cannot be blank! "
+                CA_RestartR.Interior.ColorIndex = 3
+                error_log.Interior.ColorIndex = 3
+                Cat_IDR.Interior.ColorIndex = 3
+            End If
+            
+            '1.5 In case of BF, and Agency Ca start date cannot be blank
+            If (Trading_ModelR.Value = "Agency" Or Trading_ModelR.Value = "Buy-From") And CA_StartR = 0 Then
+                error_log.Value = error_log.Value & "In case of BF and Agency, CA start date cannot be blank! "
+                CA_StartR.Interior.ColorIndex = 3
+                error_log.Interior.ColorIndex = 3
+                Cat_IDR.Interior.ColorIndex = 3
+            End If
+            
+            '1.5.1 If trading type is local and ca isn't local, ca start cannot be blank
+            If Trading_ModelR.Value = "Local" And CA_responsibleR.Value <> "Local" And CA_StartR = 0 Then
+                error_log.Value = error_log.Value & "If local trading model, and not local admin, CA start date cannot be blank! "
+                CA_StartR.Interior.ColorIndex = 3
+                error_log.Interior.ColorIndex = 3
+                Cat_IDR.Interior.ColorIndex = 3
+            End If
+            
+            '2.0.1 CA start< supplier, LM, CM < MD start
+            Call Compare_Date(CA_StartR, Sent_to_SupplierR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(CA_StartR, Received_from_SupplierR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(CA_StartR, Sent_to_LMR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(CA_StartR, Received_from_LMR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(CA_StartR, Sent_to_CMR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(CA_StartR, Received_from_CMR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(Sent_to_SupplierR, MD_StartR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(Received_from_SupplierR, MD_StartR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(Sent_to_LMR, MD_StartR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(Received_from_LMR, MD_StartR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(Sent_to_CMR, MD_StartR, Row, columsnr, Cat_ID, False)
+            Call Compare_Date(Received_from_CMR, MD_StartR, Row, columsnr, Cat_ID, False)
+            
+            '2.0.2 Sent to supplier<recieved from supplier
+            Call Compare_Date(Sent_to_SupplierR, Received_from_SupplierR, Row, columsnr, Cat_ID, True)
+            
+            '2.0.3 Sent to LM< recieved from LM
+            Call Compare_Date(Sent_to_LMR, Received_from_LMR, Row, columsnr, Cat_ID, True)
+            
+            '2.0.4 Sent to CM<recieved back from CM
+            Call Compare_Date(Sent_to_CMR, Received_from_CMR, Row, columsnr, Cat_ID, True)
+            
+            '2.0 MD start  < MD release
+            Call Compare_Date(MD_StartR, MD_releaseR, Row, columsnr, Cat_ID, False)
+            
+            '2.1 CA start < MD start
+            Call Compare_Date(CA_StartR, MD_StartR, Row, columsnr, Cat_ID, False)
+            
+            '2.2 MD start < Sent_back_to_CM_on_Portal
+            Call Compare_Date(MD_StartR, Sent_back_to_CM_on_PortalR, Row, columsnr, Cat_ID, False)
+            
+            '2.3 Sent_back_to_CM_on_Portal  < Recieved_back_from_CM_on_Portal
+            Call Compare_Date(Sent_back_to_CM_on_PortalR, Received_back_from_CM_on_PortalR, Row, columsnr, Cat_ID, False)
+            
+            '2.4 Recieved_back_from_CM_on_Portal  < MD release
+            Call Compare_Date(Received_back_from_CM_on_PortalR, MD_releaseR, Row, columsnr, Cat_ID, False)
+            
+            '2.4.1 MD_Start < Recieved_back_from_CM_on_Portal
+            Call Compare_Date(MD_StartR, Received_back_from_CM_on_PortalR, Row, columsnr, Cat_ID, False)
+            
+            '2.7 L5 Approve < MD_Release
+            Call Compare_Date(L5_approveR, MD_releaseR, Row, columsnr, Cat_ID, False)
+            
+            '2.7.1 MD_start < L5 approve
+            Call Compare_Date(MD_StartR, L5_approveR, Row, columsnr, Cat_ID, False)
+            
+            If Cat_IDR.Interior.ColorIndex = 3 Then
+                error_count = error_count + 1
+            End If
+            
+        End If
+    Next Row
+    dashboard.Cells(4, 5).Value = error_count
+    'Outlier Check
+    Dim i As Long
+    For i = CA_Start To MD_Release
+        Call find_outlier(i, MD_Release, from_MD_rel, to_MD_rel)
+    Next i
+    
+    vali.ListObjects("Table_tracker_query").Range.AutoFilter Field:=MD_Release, _
+        Criteria1:=">=" & CDbl(from_MD_rel), Operator:=xlAnd, Criteria2:="<=" & CDbl(to_MD_rel)
+        
+    dashboard.Activate
+    
+    
+    Application.ScreenUpdating = True
+End Sub
+Private Function mergeArrays(ByVal arr1 As Variant, ByVal arr2 As Variant) As Variant
+    Dim holdarr As Variant
+    Dim ub1 As Long
+    Dim ub2 As Long
+    Dim bi As Long
+    Dim i As Long
+    Dim newind As Long
+
+        ub1 = UBound(arr1) + 1
+        ub2 = UBound(arr2) + 1
+
+        bi = IIf(ub1 >= ub2, ub1, ub2)
+
+        ReDim holdarr(ub1 + ub2 - 1)
+
+        For i = 0 To bi
+            If i < ub1 Then
+                holdarr(newind) = arr1(i)
+                newind = newind + 1
+            End If
+
+            If i < ub2 Then
+                holdarr(newind) = arr2(i)
+                newind = newind + 1
+            End If
+        Next i
+
+        mergeArrays = holdarr
+End Function
+
+Sub email()
+    'ask for confirmation
+    Dim answer As Long
+    Send_emails_form.Show
+    answer = Send_emails_form.ans
+    Unload Send_emails_form
+    
+    Dim from_MD_rel As Date
+    Dim to_MD_rel As Date
+    Dim errorlog_colnr As Long
+    Dim Row As Long
+    Dim rownr As Long
+    Dim MD_Release As Range
+    Dim MD_Start As Range
+    Dim vali As Worksheet
+    Dim email As Worksheet
+    Dim dashboard As Worksheet
+    
+    'CA responsible collumns:
+    Dim CA_Start_colnr As Long
+    Dim Sent_to_Supplier_colnr As Long
+    Dim Answer_from_Supplier_colnr As Long
+    Dim Sent_to_LM_colnr As Long
+    Dim Answer_from_LM_colnr As Long
+    Dim Sent_to_CM_colnr As Long
+    Dim Answer_from_CM_colnr As Long
+    Dim CA_REStart_colnr As Long
+    Dim CA_responsible_collumns(7) As Integer
+      
+    'MD responsible collumns:
+    Dim Sent_back_to_CM_on_Portal_colnr As Long
+    Dim Recieved_back_from_the_CM_on_Portal_colnr As Long
+    Dim L3_Approve_colnr As Long
+    Dim L5_Approve_colnr As Long
+    Dim MD_Start_colnr As Long
+    Dim MD_release_colnr As Long
+    Dim MD_responsible_collumns(5) As Integer
+
+    Dim Cat_ID As Range
+    Dim error_log As Range
+    
+    Dim CA_responsible As Range
+    Dim MD_responsible As Range
+    Dim CA_responsible_colnr As Long
+    Dim MD_responsible_colnr As Long
+    Dim Cat_ID_colnr
+    
+    Set dashboard = ThisWorkbook.Sheets("Dashboard")
+    Set email = ThisWorkbook.Sheets("emails")
+    Set vali = ThisWorkbook.Sheets("validation")
+    
+    'Determine collumn numbers
+    MD_Start_colnr = vali.Range("Table_tracker_query[[#Headers],[MD Start]]").Column
+    MD_release_colnr = vali.Range("Table_tracker_query[[#Headers],[MD Release]]").Column
+    CA_Start_colnr = vali.Range("Table_tracker_query[[#Headers],[CA Start / Conclusion Sheet Date]]").Column
+    Answer_from_CM_colnr = vali.Range("Table_tracker_query[[#Headers],[Answer from CM]]").Column
+    CA_responsible_colnr = vali.Range("Table_tracker_query[[#Headers],[CA responsible]]").Column
+    MD_responsible_colnr = vali.Range("Table_tracker_query[[#Headers],[MD responsible]]").Column
+    Cat_ID_colnr = vali.Range("Table_tracker_query[[#Headers],[ID]]").Column
+    errorlog_colnr = vali.Range("Table_tracker_query[[#Headers],[Error Log]]").Column
+    rownr = vali.Range("A1", vali.Range("A1").End(xlDown)).Rows.count
+    Sent_to_Supplier_colnr = vali.Range("Table_tracker_query[[#Headers],[Sent to supplier]]").Column
+    Answer_from_Supplier_colnr = vali.Range("Table_tracker_query[[#Headers],[Answer from supplier]]").Column
+    Sent_to_LM_colnr = vali.Range("Table_tracker_query[[#Headers],[Sent to LM]]").Column
+    Answer_from_LM_colnr = vali.Range("Table_tracker_query[[#Headers],[Answer from LM]]").Column
+    Sent_to_CM_colnr = vali.Range("Table_tracker_query[[#Headers],[Sent to CM]]").Column
+    CA_REStart_colnr = vali.Range("Table_tracker_query[[#Headers],[CA Restart / Conclusion Sheet Date 2]]").Column
+    Sent_back_to_CM_on_Portal_colnr = vali.Range("Table_tracker_query[[#Headers],[Sent back to CM on Portal]]").Column
+    Recieved_back_from_the_CM_on_Portal_colnr = vali.Range("Table_tracker_query[[#Headers],[Recieved back from the CM on Portal]]").Column
+    L3_Approve_colnr = vali.Range("Table_tracker_query[[#Headers],[L3 approve]]").Column
+    L5_Approve_colnr = vali.Range("Table_tracker_query[[#Headers],[L5 approve]]").Column
+    
+    Dim email_rownr As Long
+    email_rownr = email.Range("A1", email.Range("A1").End(xlDown)).Rows.count
+    
+    
+    'Create array of CA responsible collums
+    CA_responsible_collumns(0) = CA_Start_colnr
+    CA_responsible_collumns(1) = Sent_to_Supplier_colnr
+    CA_responsible_collumns(2) = Answer_from_Supplier_colnr
+    CA_responsible_collumns(3) = Sent_to_LM_colnr
+    CA_responsible_collumns(4) = Answer_from_LM_colnr
+    CA_responsible_collumns(5) = Sent_to_CM_colnr
+    CA_responsible_collumns(6) = Answer_from_CM_colnr
+    CA_responsible_collumns(7) = CA_REStart_colnr
+    
+    'Create array of MD responsible collumns
+    MD_responsible_collumns(0) = Sent_back_to_CM_on_Portal_colnr
+    MD_responsible_collumns(1) = Recieved_back_from_the_CM_on_Portal_colnr
+    MD_responsible_collumns(2) = L3_Approve_colnr
+    MD_responsible_collumns(3) = L5_Approve_colnr
+    MD_responsible_collumns(4) = MD_Start_colnr
+    MD_responsible_collumns(5) = MD_release_colnr
+    
+    'Create array for CA members
+    Dim CA_count As Integer
+    CA_count = Application.WorksheetFunction.CountIf(email.Range("A:A"), "CA")
+    ReDim CA_list(CA_count - 1) As Variant
+    
+    'Create array for MD members
+    Dim MD_count As Integer
+    MD_count = Application.WorksheetFunction.CountIf(email.Range("A:A"), "MD")
+    ReDim MD_list(MD_count - 1) As Variant
+    
+    Dim i As Long
+    Dim count As Long
+    Dim count2 As Long
+    count = 0
+    count2 = 0
+    For i = 1 To email_rownr
+        
+        Dim Pers_array(1) As Range
+        If email.Cells(i, 1).Value = "CA" Then
+            'Create array for each person, index0 is name index1 is email
+            Set Pers_array(0) = email.Cells(i, 2)
+            Set Pers_array(1) = email.Cells(i, 3)
+            
+            'Add to CA_list
+            CA_list(count) = Pers_array
+            count = count + 1
+        
+        ElseIf email.Cells(i, 1).Value = "MD" Then
+            'Create array for each person, index0 is name index1 is email
+            Set Pers_array(0) = email.Cells(i, 2)
+            Set Pers_array(1) = email.Cells(i, 3)
+            
+            'Add to MD_list
+            MD_list(count2) = Pers_array
+            count2 = count2 + 1
+        End If
+    Next i
+    
+    'set for MD release date
+    from_MD_rel = dashboard.Cells(2, 2)
+    to_MD_rel = dashboard.Cells(3, 2)
+    
+    
+    'Check if all emails present
+    Dim no_email() As String
+    ReDim no_email(0)
+    Dim no_email_count As Integer
+    Dim names As Range
+    Set names = email.Range("B1", email.Range("B1").End(xlDown))
+    For Row = 2 To rownr
+        Set MD_Release = vali.Cells(Row, MD_release_colnr)
+        Set MD_Start = vali.Cells(Row, MD_Start_colnr)
+        Set CA_responsible = vali.Cells(Row, CA_responsible_colnr)
+        Set MD_responsible = vali.Cells(Row, MD_responsible_colnr)
+        
+        
+        If from_MD_rel <= MD_Release.Value And MD_Release.Value <= to_MD_rel Then
+            If names.Find(CA_responsible.Value) Is Nothing And _
+            UBound(Filter(no_email, CA_responsible.Value)) <> 0 Then
+                no_email_count = no_email_count + 1
+                ReDim Preserve no_email(no_email_count)
+                no_email(no_email_count) = CA_responsible.Value
+                MsgBox "No email found for CA: " & CA_responsible.Value & "!" & vbCrLf & "Please add it to the emails sheet."
+            End If
+            
+            If names.Find(MD_responsible.Value) Is Nothing And _
+            UBound(Filter(no_email, MD_responsible.Value)) <> 0 Then
+                no_email_count = no_email_count + 1
+                ReDim Preserve no_email(no_email_count)
+                no_email(no_email_count) = MD_responsible.Value
+                MsgBox "No email found for MD: " & MD_responsible.Value & "!" & vbCrLf & "Please add it to the emails sheet."
+            End If
+            
+            If no_email_count <> 0 Then
+                Exit Sub
+            End If
+        End If
+    Next Row
+    
+    'Check for errors, add relevant info to arrays
+    For Row = 2 To rownr
+        Set MD_Release = vali.Cells(Row, MD_release_colnr)
+        Set MD_Start = vali.Cells(Row, MD_Start_colnr)
+        Set Cat_ID = vali.Cells(Row, Cat_ID_colnr)
+        Set error_log = vali.Cells(Row, errorlog_colnr)
+        Set CA_responsible = vali.Cells(Row, CA_responsible_colnr)
+        Set MD_responsible = vali.Cells(Row, MD_responsible_colnr)
+        
+        If Not IsEmpty(vali.Cells(Row, errorlog_colnr)) _
+        And from_MD_rel <= MD_Release.Value And MD_Release.Value <= to_MD_rel Then
+            Dim curr_colnr As Integer
+            'Check if error in CA fields
+            For i = 0 To UBound(CA_responsible_collumns)
+                curr_colnr = CA_responsible_collumns(i)
+                If vali.Cells(Row, curr_colnr).Interior.ColorIndex = 3 Then
+                    Dim n As Long
+                    For n = 0 To CA_count - 1
+                        If CA_list(n)(0).Value = CA_responsible.Value Then
+                            'Resize the array of the person with errors, add Cat_ID as index2 +2n, error as index3 +2n and add it back into CA_List
+                            Dim temp_Pers_array() As Range
+                            ReDim temp_Pers_array(UBound(CA_list(n)))
+                            temp_Pers_array = CA_list(n)
+                            Dim nr_errors As Long
+                            nr_errors = UBound(temp_Pers_array)
+                            ReDim Preserve temp_Pers_array(nr_errors + 2)
+                            Set temp_Pers_array(nr_errors + 1) = Cat_ID
+                            Set temp_Pers_array(nr_errors + 2) = error_log
+                            CA_list(n) = temp_Pers_array
+                            Exit For
+                        End If
+                    Next n
+                    Exit For
+                End If
+            Next i
+            
+            'Check if error in MD fields
+            For i = 0 To UBound(MD_responsible_collumns)
+                curr_colnr = MD_responsible_collumns(i)
+                If vali.Cells(Row, curr_colnr).Interior.ColorIndex = 3 Then
+                    For n = 0 To MD_count - 1
+                        If MD_list(n)(0).Value = MD_responsible.Value Then
+                            'Resize the array of the person with errors, add Cat_ID as index2+2n, error as index3+2n and add it back into MD_List
+                            ReDim temp_Pers_array(UBound(MD_list(n)))
+                            temp_Pers_array = MD_list(n)
+                            nr_errors = UBound(temp_Pers_array)
+                            ReDim Preserve temp_Pers_array(nr_errors + 2)
+                            Set temp_Pers_array(nr_errors + 1) = Cat_ID
+                            Set temp_Pers_array(nr_errors + 2) = error_log
+                            MD_list(n) = temp_Pers_array
+                            Exit For
+                        End If
+                    Next n
+                    Exit For
+                End If
+            Next i
+            
+        End If
+    Next Row
+        
+    'Merge arrays
+    Dim Person_list As Variant
+    Person_list = mergeArrays(CA_list, MD_list)
+    
+    Dim OutlookApp As Outlook.Application
+    Dim MItem As Outlook.MailItem
+    Dim Subj As String, EmailAddr As String, Recipient As String
+    Dim ID_with_error() As String
+    Dim errormsg() As String
+    Dim Person As Range
+    Dim Msg As String
+    Dim ub As Long
+    Dim nr_persons As Long
+    Dim error_count As Long
+    
+    nr_persons = UBound(Person_list)
+    Set OutlookApp = New Outlook.Application
+    
+    'Send email to people with errors
+    For n = 0 To nr_persons
+        ub = UBound(Person_list(n))
+        If ub >= 3 And Person_list(n)(0) <> "Local" Then
+    
+            error_count = error_count + 1
+            Subj = "Problems in the catalogue tracker (FY1617)"
+            Recipient = Mid(Person_list(n)(0), InStr(Person_list(n)(0).Value, ",") + 2) ' First name only
+            EmailAddr = Person_list(n)(1).Value
+            
+            'Fill ID and error variables with corresponding entries
+            ReDim ID_with_error(((ub - 1) / 2) - 1)
+            ReDim errormsg(((ub - 1) / 2) - 1)
+            Dim s As Long
+            s = 0
+            For i = 2 To ub Step 2
+                ID_with_error(s) = Person_list(n)(i).Value
+                s = s + 1
+            Next i
+            
+            s = 0
+            For i = 3 To ub Step 2
+                errormsg(s) = Person_list(n)(i).Value
+                s = s + 1
+            Next i
+            
+            nr_errors = UBound(ID_with_error)
+            'The message
+            Msg = "Dear " & Recipient & "," & vbCrLf & vbCrLf
+            Msg = Msg & "There are some problems with the data you entered into the catalogue tracker (FY1617)." & vbCrLf
+            Msg = Msg & "Please check the following entries:" & vbCrLf & vbCrLf
+            
+            For i = 0 To nr_errors
+                Msg = Msg & vbTab & "Catalogue ID:" & ID_with_error(i) & vbTab & "Problem(s): " & errormsg(i) & vbCrLf & vbCrLf
+            Next i
+            
+            Msg = Msg & "Please correct these entries in the tracker." & vbCrLf
+            Msg = Msg & "Thank you very much!" & vbCrLf & vbCrLf
+            Msg = Msg & "<<This is an automated message>>" & vbCrLf
+        
+            'Create mail item and send
+            If answer = 1 Then
+                Set MItem = OutlookApp.CreateItem(olMailItem)
+                With MItem
+                    .To = EmailAddr
+                    .Subject = Subj
+                    .Body = Msg
+                    .Display
+                    Application.Wait (Now + TimeValue("0:00:02"))
+                    Application.SendKeys "%s"
+                End With
+            ElseIf answer = 2 Then
+                Set MItem = OutlookApp.CreateItem(olMailItem)
+                With MItem
+                    .To = EmailAddr
+                    .Subject = Subj
+                    .Body = Msg
+                    .Save
+                End With
+            Else
+                Exit Sub
+            End If
+        
+        End If
+    Next n
+    dashboard.Cells(4, 2).Value = error_count
+    
+End Sub
+
